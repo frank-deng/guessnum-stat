@@ -6,11 +6,6 @@
 #include "guessnum.h"
 #include "common.h"
 
-typedef struct{
-    unsigned long long report_s[GUESS_CHANCES];
-    unsigned long long report_m[GUESS_CHANCES];
-}game_data_t;
-
 struct worker_s;
 typedef struct {
     pthread_t tid;

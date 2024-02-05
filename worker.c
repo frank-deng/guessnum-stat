@@ -35,12 +35,12 @@ worker_t *worker_start(worker_param_t *param)
     worker->fileinfo.stat_path=param->stat_path;
     worker->fileinfo.pipe_in=param->pipe_in;
     worker->fileinfo.pipe_out=param->pipe_out;
+    init();
     int rc=init_files(&worker->fileinfo);
     if(rc!=E_OK){
         free(worker);
         return NULL;
     }
-    init();
     srand(time(NULL));
     worker->thread_count=param->thread_count;
     worker->running=true;

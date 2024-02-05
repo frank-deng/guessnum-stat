@@ -7,6 +7,11 @@
 
 #define GUESS_CHANCES (16)
 
+typedef struct{
+    unsigned long long report_s[GUESS_CHANCES];
+    unsigned long long report_m[GUESS_CHANCES];
+}game_data_t;
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -9,6 +9,7 @@
 #include <sys/file.h>
 #include <termios.h>
 #include "common.h"
+#include "guessnum.h"
 #include "viewer.h"
 
 typedef uint64_t board_t;
@@ -17,9 +18,10 @@ typedef struct{
     int fd_out;
     volatile bool running;
     volatile bool refresh;
-    uint16_t cols;
     bool term_init;
     struct termios flags_orig;
+    uint16_t game_data_len;
+    game_data_t game_data;
 }viewer_t;
 
 static inline void _clrscr()
@@ -98,7 +100,7 @@ static void draw_screen(viewer_t *viewer)
     goto_rowcol(0,0);
     printf("Guesses %21s %21s\n", "Normal", "Mastermind");
 }
-static inline int print_stat(viewer_t *viewer)
+static inline int get_stat(viewer_t *viewer)
 {
     char cmd='b',buf[1024];
     int i;
@@ -107,6 +109,7 @@ static inline int print_stat(viewer_t *viewer)
     if(rc<=0){
         return E_FILEIO;
     }
+    usleep(1000);
     uint32_t retry=200000;
     do{
         usleep(1000);
@@ -125,33 +128,42 @@ static inline int print_stat(viewer_t *viewer)
         return E_INVAL;
     }
     *p_end='\0';
-    uint16_t records_count=strtoul(p_start,NULL,0);
+    viewer->game_data_len=strtoul(p_start,NULL,0);
     p_start=p_end+1;
     
-    // Display boards
-    unsigned long long total_s=0,total_m=0;
-    goto_rowcol(1,0);
-    for(i=0; i<records_count; i++){
+    for(i=0; i<viewer->game_data_len; i++){
         p_end=strchr(p_start,'\n');
         if(p_end!=NULL){
             *p_end='\0';
         }
-        unsigned int guesses=0;
-        unsigned long long result_s=0,result_m=0;
-        sscanf(p_start,"%llu,%llu",&result_s,&result_m);
-        printf("%-2u      %21llu %21llu\n",i+1,result_s,result_m);
-        total_s+=result_s;
-        total_m+=result_m;
+        unsigned long long report_s=0, report_m=0;
+        sscanf(p_start,"%llu,%llu",&report_s,&report_m);
+        viewer->game_data.report_s[i]=report_s;
+        viewer->game_data.report_m[i]=report_m;
         if(p_end!=NULL){
             p_start=p_end+1;
         }else{
             break;
         }
     }
-    printf("Total:  %21llu %21llu\n",total_s,total_m);
-    fflush(stdout);
     return E_OK;
 }
+void print_stat(viewer_t *viewer)
+{
+    int i;
+    goto_rowcol(1,0);
+    unsigned long long total_s=0,total_m=0;
+    for(i=0; i<viewer->game_data_len; i++){
+        unsigned long long report_s=viewer->game_data.report_s[i];
+        unsigned long long report_m=viewer->game_data.report_m[i];
+        total_s+=report_s;
+        total_m+=report_m;
+        printf("%-2u      %21llu %21llu\n",i+1,report_s,report_m);
+    }
+    printf("Total:  %21llu %21llu\n",total_s,total_m);
+    fflush(stdout);
+}
+
 viewer_t viewer;
 void do_stop_viewer(int signal)
 {
@@ -171,23 +183,17 @@ int viewer_guessnum(const char *pipe_in,const char *pipe_out)
     signal(SIGTERM,do_stop_viewer);
     signal(SIGWINCH,do_refresh_viewer);
     time_t t0=time(NULL);
-    int rc_print=E_OK;
     while(viewer.running) {
         if(viewer.refresh){
             viewer.refresh=false;
             draw_screen(&viewer);
-            rc_print=print_stat(&viewer);
-            t0=time(NULL);
-        }else{
-            time_t t=time(NULL);
-            if((t-t0)>=1){
-                t0=t;
-                rc_print=print_stat(&viewer);
-            }
+            print_stat(&viewer);
         }
-        if(rc_print!=E_OK){
-            viewer.running=false;
-            break;
+        time_t t=time(NULL);
+        if((t-t0)>=1){
+            t0=t;
+            get_stat(&viewer);
+            print_stat(&viewer);
         }
         
         char ch='\0';
