@@ -1,6 +1,6 @@
 # Use `make old_android=true` to compile on old android devices
 TARGET=guessnum-stat
-OBJS=guessnum.o fileio.o worker.o main.o
+OBJS=guessnum.o fileio.o worker.o viewer.o main.o
 HEADERS=guessnum.h fileio.h worker.h random.h
 
 ifdef old_android
@@ -21,6 +21,8 @@ guessnum.o:guessnum.c $(HEADERS)
 fileio.o:fileio.c $(HEADERS)
 
 worker.o:worker.c $(HEADERS)
+
+viewer.o:viewer.c $(HEADERS)
 
 main.o:main.c $(HEADERS)
 

@@ -123,6 +123,10 @@ void close_files(fileinfo_t *info)
 }
 int write_stat(worker_t *worker)
 {
+    game_data_t game_data;
+    pthread_mutex_lock(&worker->stat_mutex);
+    game_data = worker->game_data_main;
+    pthread_mutex_unlock(&worker->stat_mutex);
     uint8_t i,last_record=GUESS_CHANCES;
     while(last_record>8) {
         if(worker->game_data_main.report_s[last_record-1]!=0 ||
@@ -152,10 +156,14 @@ int read_stat(worker_t *worker)
     unsigned int guesses=0;
     unsigned long long count_s=0,count_m=0;
     fgets(buf,sizeof(buf),fp);
+    game_data_t game_data={0};
     for(i=0; i<GUESS_CHANCES && !feof(fp); i++) {
         fscanf(fp,"%u,%llu,%llu\n",&guesses,&count_s,&count_m);
-        worker->game_data_main.report_s[i]=count_s;
-        worker->game_data_main.report_m[i]=count_m;
+        game_data.report_s[i]=count_s;
+        game_data.report_m[i]=count_m;
     }
+    pthread_mutex_lock(&worker->stat_mutex);
+    worker->game_data_main=game_data;
+    pthread_mutex_unlock(&worker->stat_mutex);
     return E_OK;
 }

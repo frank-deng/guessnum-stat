@@ -44,8 +44,8 @@ worker_t *worker_start(worker_param_t *param)
     srand(time(NULL));
     worker->thread_count=param->thread_count;
     worker->running=true;
-    read_stat(worker);
     pthread_mutex_init(&worker->stat_mutex, NULL);
+    read_stat(worker);
     int i;
     for (i = 0; i < worker->thread_count; i++) {
         thread_data_t *thread_data=&(worker->thread_data[i]);
@@ -56,7 +56,7 @@ worker_t *worker_start(worker_param_t *param)
     }
     return worker;
 }
-int worker_report(worker_t *worker,game_data_t *out)
+int worker_report(worker_t *worker)
 {
     pthread_mutex_lock(&worker->stat_mutex);
     worker->thread_report=worker->thread_count;
@@ -72,7 +72,6 @@ int worker_report(worker_t *worker,game_data_t *out)
     while(cont && (time(NULL)-t0)<1){
         pthread_mutex_lock(&worker->stat_mutex);
         if(worker->thread_report <= 0){
-            memcpy(out,&worker->game_data_main,sizeof(worker->game_data_main));
             cont=false;
         }
         pthread_mutex_unlock(&worker->stat_mutex);
@@ -95,4 +94,56 @@ void worker_stop(worker_t *worker)
     close_files(&worker->fileinfo);
     pthread_mutex_destroy(&worker->stat_mutex);
     free(worker);
+}
+static void output_stat(int fd,worker_t *worker)
+{
+    worker_report(worker);
+    game_data_t game_data;
+    pthread_mutex_lock(&worker->stat_mutex);
+    game_data = worker->game_data_main;
+    pthread_mutex_unlock(&worker->stat_mutex);
+    
+    uint8_t i,last_record=GUESS_CHANCES;
+    char buf[80];
+    while(last_record>8) {
+        if(game_data.report_s[last_record-1]!=0 ||
+            game_data.report_m[last_record-1]!=0) {
+            break;
+        }
+        last_record--;
+    }
+    snprintf(buf,sizeof(buf),"%u\n",last_record);
+    int rc=write(fd,buf,strlen(buf));
+    if(rc<=0){
+        fprintf(stderr,"Failed to write pipe %d %d\n",rc,errno);
+    }
+    for(i=0; i<last_record; i++) {
+        snprintf(buf,sizeof(buf),"%llu,%llu\n",game_data.report_s[i],game_data.report_m[i]);
+        int rc=write(fd,buf,strlen(buf));
+        if(rc<=0){
+            fprintf(stderr,"Failed to write pipe %d %d\n",rc,errno);
+        }
+    }
+}
+int worker_pipe_handler(worker_t *worker)
+{
+    char cmd='\0';
+    int rc=read(worker->fileinfo.fd_in,&cmd,sizeof(cmd));
+    if(rc<0 && errno==EAGAIN){
+        return E_AGAIN;
+    }else if(rc<=0){
+        fprintf(stderr,"Failed to read pipe %d %d\n",rc,errno);
+        return E_FILEIO;
+    }
+    switch(cmd){
+        case 'Q':
+        case 'q':
+            worker->running=false;
+        break;
+        case 'B':
+        case 'b':
+            output_stat(worker->fileinfo.fd_out,worker);
+        break;
+    }
+    return E_OK;
 }

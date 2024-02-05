@@ -55,7 +55,8 @@ extern "C" {
 
 worker_t *worker_start(worker_param_t *param);
 void worker_stop(worker_t *worker);
-int worker_report(worker_t *worker,game_data_t *out);
+int worker_report(worker_t *worker);
+int worker_pipe_handler(worker_t *worker);
 
 #ifdef __cplusplus
 }

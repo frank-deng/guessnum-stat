@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include <getopt.h>
 #include "worker.h"
+#include "fileio.h"
+#include "viewer.h"
 
 #define ENV_STAT_FILE ("RUN_GUESSNUM_STAT_FILE")
 #define ENV_PIPE_IN ("RUN_GUESSNUM_PIPE_IN")
@@ -12,42 +14,6 @@
 #define DEFAULT_STAT_FILE ("guessnum.csv")
 #define DEFAULT_PIPE_IN (".guessnum-run.in")
 #define DEFAULT_PIPE_OUT (".guessnum-run.out")
-
-static inline void goto_rowcol(uint8_t row, uint8_t col)
-{
-    printf("\033[%u;%uH",row+1,col+1);
-}
-static inline void _clrscr()
-{
-    printf("\033[2J");
-    goto_rowcol(0,0);
-}
-static void draw_screen()
-{
-    _clrscr();
-    goto_rowcol(19,0);
-    printf("Press Ctrl-c to quit.");
-    goto_rowcol(0,0);
-    printf("Guesses %21s %21s\n", "Normal", "Mastermind");
-}
-void print_report(unsigned long long *report_s, unsigned long long *report_m)
-{
-    uint8_t i,last_record=GUESS_CHANCES;
-    unsigned long long total_s=0, total_m=0;
-    goto_rowcol(1,0);
-    while(last_record>8) {
-        if(report_s[last_record-1]!=0 || report_m[last_record-1]!=0) {
-            break;
-        }
-        last_record--;
-    }
-    for(i=0; i<last_record; i++) {
-        total_s+=report_s[i];
-        total_m+=report_m[i];
-        printf("%-2u      %21llu %21llu\n", i+1, report_s[i], report_m[i]);
-    }
-    printf("Total: %llu\n", total_s);
-}
 
 uint16_t get_cpu_count()
 {
@@ -73,6 +39,29 @@ const char *getfromenv(const char *key,const char *defval)
     }
     return res;
 }
+int do_stop_daemon(bool daemon_running,const char *pipe_in,const char *pipe_out){
+    if(!daemon_running){
+        fprintf(stderr,"Bulls and Cows daemon is not running.\n");
+        return 1;
+    }
+    int fd_in=open(pipe_in,O_RDWR|O_NONBLOCK);
+    if(fd_in<0){
+        fprintf(stderr,"Failed to communicate with Bulls and Cows daemon.\n");
+        return 1;
+    }
+    int rc=0;
+    char cmd='q';
+    if(write(fd_in,&cmd,sizeof(cmd))<sizeof(cmd)){
+        fprintf(stderr,"Failed to stop 2048 daemon.\n");
+    }
+    close(fd_in);
+    if(wait_daemon(false,pipe_in,pipe_out,20)!=E_OK){
+        fprintf(stderr,"Timeout.\n");
+        return 1;
+    }
+    fprintf(stderr,"Bulls and Cows daemon stopped.\n");
+    return rc;
+}
 
 worker_t *worker=NULL;
 static void do_stop_worker(int signal)
@@ -81,11 +70,6 @@ static void do_stop_worker(int signal)
         return;
     }
     worker->running=false;
-}
-bool refresh=true;
-static void do_refresh_signal(int signo)
-{
-    refresh=true;
 }
 void print_help(const char *app_name){
     char *app_name_last_posix=strrchr(app_name,'/');
@@ -131,6 +115,30 @@ int main(int argc, char *argv[])
             break;
         }
     }
+    bool daemon_running=test_running(filename_stat);
+    if(stop_daemon){
+        return do_stop_daemon(daemon_running,pipe_in,pipe_out);
+    }
+    if(daemon_running){
+        if(viewer){
+            return viewer_guessnum(pipe_in,pipe_out);
+        }else{
+            fprintf(stderr,"Bulls and Cows daemon is already running.\n");
+            return 1;
+        }
+    }
+    pid_t pid=fork();
+    if(0!=pid){
+        if(E_OK!=wait_daemon(true,pipe_in,pipe_out,20)){
+            fprintf(stderr,"Failed to start Bulls and Cows daemon.\n");
+            return 1;
+        }
+        if(viewer){
+            return viewer_guessnum(pipe_in,pipe_out);
+        }
+        fprintf(stderr,"Bulls and Cows daemon started.\n");
+        return 0;
+    }
     
     if(proc_cnt==0){
 	    proc_cnt=get_cpu_count();
@@ -141,33 +149,26 @@ int main(int argc, char *argv[])
         .pipe_in=pipe_in,
         .pipe_out=pipe_out,
     };
-    signal(SIGINT,do_stop_worker);
-    signal(SIGQUIT,do_stop_worker);
+    signal(SIGINT,SIG_IGN);
+    signal(SIGQUIT,SIG_IGN);
     signal(SIGTERM,do_stop_worker);
-    signal(SIGWINCH,do_refresh_signal);
-    puts("Initializing...");
+    signal(SIGWINCH,SIG_IGN);
     worker=worker_start(&param);
     if(NULL==worker){
         return 1;
     }
     game_data_t report={0};
-    time_t t_print=time(NULL),t;
-    worker_report(worker,&report);
+    time_t t_write=time(NULL),t;
     while(worker->running) {
-        if(refresh) {
-            refresh=false;
-            draw_screen();
-            print_report(report.report_s,report.report_m);
-        }
+        worker_pipe_handler(worker);
         t=time(NULL);
-        if(t-t_print >= 1) {
-            worker_report(worker,&report);
-            print_report(report.report_s,report.report_m);
-            t_print=t;
+        if(t-t_write >= 2) {
+            worker_report(worker);
+            write_stat(worker);
+            t_write=t;
         }
         usleep(1000);
     }
-    _clrscr();
     worker_stop(worker);
     return 0;
 }
