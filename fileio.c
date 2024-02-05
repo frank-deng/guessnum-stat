@@ -146,6 +146,7 @@ int write_stat(worker_t *worker)
             worker->game_data_main.report_m[i]
         );
     }
+    fflush(fp);
     return E_OK;
 }
 int read_stat(worker_t *worker)
