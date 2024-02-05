@@ -110,7 +110,7 @@ static inline int get_stat(viewer_t *viewer)
         return E_FILEIO;
     }
     usleep(1000);
-    uint32_t retry=200000;
+    uint32_t retry=20000;
     do{
         usleep(1000);
         rc=read(viewer->fd_out,buf,sizeof(buf)-1);
@@ -122,30 +122,35 @@ static inline int get_stat(viewer_t *viewer)
     }
     buf[rc]='\0';
     
-    // Get thread count
+    // Get record count
     char *p_start=buf,*p_end=strchr(p_start,'\n');
     if(p_end==NULL){
         return E_INVAL;
     }
     *p_end='\0';
-    viewer->game_data_len=strtoul(p_start,NULL,0);
+    uint16_t game_data_len=strtoul(p_start,NULL,0);
+    game_data_t game_data={0};
     p_start=p_end+1;
     
-    for(i=0; i<viewer->game_data_len; i++){
+    // Get game data
+    i=0;
+    while(p_end!=NULL && i<game_data_len){
         p_end=strchr(p_start,'\n');
         if(p_end!=NULL){
             *p_end='\0';
         }
-        unsigned long long report_s=0, report_m=0;
-        sscanf(p_start,"%llu,%llu",&report_s,&report_m);
-        viewer->game_data.report_s[i]=report_s;
-        viewer->game_data.report_m[i]=report_m;
+        sscanf(p_start,"%llu,%llu",&game_data.report_s[i],
+            &game_data.report_m[i]);
         if(p_end!=NULL){
             p_start=p_end+1;
-        }else{
-            break;
         }
+        i++;
     }
+    if(game_data_len != i){
+        return E_INVAL;
+    }
+    viewer->game_data_len=game_data_len;
+    viewer->game_data=game_data;
     return E_OK;
 }
 void print_stat(viewer_t *viewer)
@@ -183,6 +188,7 @@ int viewer_guessnum(const char *pipe_in,const char *pipe_out)
     signal(SIGTERM,do_stop_viewer);
     signal(SIGWINCH,do_refresh_viewer);
     time_t t0=time(NULL);
+    get_stat(&viewer);
     while(viewer.running) {
         if(viewer.refresh){
             viewer.refresh=false;

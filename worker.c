@@ -35,13 +35,12 @@ worker_t *worker_start(worker_param_t *param)
     worker->fileinfo.stat_path=param->stat_path;
     worker->fileinfo.pipe_in=param->pipe_in;
     worker->fileinfo.pipe_out=param->pipe_out;
-    init();
     int rc=init_files(&worker->fileinfo);
     if(rc!=E_OK){
         free(worker);
         return NULL;
     }
-    srand(time(NULL));
+    init();
     worker->thread_count=param->thread_count;
     worker->running=true;
     pthread_mutex_init(&worker->stat_mutex, NULL);
@@ -51,7 +50,7 @@ worker_t *worker_start(worker_param_t *param)
         thread_data_t *thread_data=&(worker->thread_data[i]);
         thread_data->worker=worker;
         thread_data->do_report=false;
-        initRandom(&thread_data->rand, rand());
+        initRandom(&thread_data->rand, unif_random(RANDOM_MAX));
         pthread_create(&(thread_data->tid), NULL, thread_main, thread_data);
     }
     return worker;
