@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-int viewer_guessnum(const char *pipe_in,const char *pipe_out);
+int viewer_guessnum(const char *socket_path);
 
 #ifdef __cplusplus
 }

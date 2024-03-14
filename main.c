@@ -8,12 +8,10 @@
 #include "viewer.h"
 
 #define ENV_STAT_FILE ("RUN_GUESSNUM_STAT_FILE")
-#define ENV_PIPE_IN ("RUN_GUESSNUM_PIPE_IN")
-#define ENV_PIPE_OUT ("RUN_GUESSNUM_PIPE_OUT")
+#define ENV_SOCKET_PATH ("RUN_GUESSNUM_SOCKET_PATH")
 
 #define DEFAULT_STAT_FILE ("guessnum.csv")
-#define DEFAULT_PIPE_IN (".guessnum-run.in")
-#define DEFAULT_PIPE_OUT (".guessnum-run.out")
+#define DEFAULT_SOCKET_PATH (".guessnum-run.socket")
 
 uint16_t get_cpu_count()
 {
@@ -25,9 +23,9 @@ uint16_t get_cpu_count()
     uint16_t res=0;
     char buf[80];
     while(fgets(buf,sizeof(buf),fp)!=NULL){
-	if(strncmp(buf,"processor",sizeof("processor")-1)==0){
-	    res++;
-	}
+    	if(strncmp(buf,"processor",sizeof("processor")-1)==0){
+	        res++;
+    	}
     }
     return max(res,1);
 }
@@ -39,28 +37,39 @@ const char *getfromenv(const char *key,const char *defval)
     }
     return res;
 }
-int do_stop_daemon(bool daemon_running,const char *pipe_in,const char *pipe_out){
+int do_stop_daemon(bool daemon_running,const char *socket_path){
     if(!daemon_running){
         fprintf(stderr,"Bulls and Cows daemon is not running.\n");
         return 1;
     }
-    int fd_in=open(pipe_in,O_RDWR|O_NONBLOCK);
-    if(fd_in<0){
-        fprintf(stderr,"Failed to communicate with Bulls and Cows daemon.\n");
+    
+    int fd=socket(PF_UNIX,SOCK_STREAM,0);
+    if(fd<0){
+        fprintf(stderr,"Failed to init socket.\n");
         return 1;
     }
-    int rc=0;
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+    
+    struct sockaddr_un addr;
+    addr.sun_family=AF_UNIX;
+    strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path)-1);
+    if(connect(fd,(struct sockaddr*)&addr,sizeof(addr)) < 0){
+        fprintf(stderr,"Failed to open socket %s, maybe daemon is not running.\n",socket_path);
+        close(fd);
+        return 1;
+    }
+    
     char cmd='q';
-    if(write(fd_in,&cmd,sizeof(cmd))<sizeof(cmd)){
+    if(write(fd,&cmd,sizeof(cmd))<sizeof(cmd)){
         fprintf(stderr,"Failed to stop 2048 daemon.\n");
     }
-    close(fd_in);
-    if(wait_daemon(false,pipe_in,pipe_out,20)!=E_OK){
+    close(fd);
+    if(wait_daemon(false,socket_path,20)!=E_OK){
         fprintf(stderr,"Timeout.\n");
         return 1;
     }
     fprintf(stderr,"Bulls and Cows daemon stopped.\n");
-    return rc;
+    return 0;
 }
 
 worker_t *worker=NULL;
@@ -88,8 +97,7 @@ void print_help(const char *app_name){
 int main(int argc, char *argv[])
 {
     const char *filename_stat=getfromenv(ENV_STAT_FILE,DEFAULT_STAT_FILE);
-    const char *pipe_in=getfromenv(ENV_PIPE_IN,DEFAULT_PIPE_IN);
-    const char *pipe_out=getfromenv(ENV_PIPE_OUT,DEFAULT_PIPE_OUT);
+    const char *socket_path=getfromenv(ENV_SOCKET_PATH,DEFAULT_SOCKET_PATH);
     uint16_t proc_cnt = 0;
     bool viewer=true;
     bool stop_daemon=false;
@@ -117,11 +125,11 @@ int main(int argc, char *argv[])
     }
     bool daemon_running=test_running(filename_stat);
     if(stop_daemon){
-        return do_stop_daemon(daemon_running,pipe_in,pipe_out);
+        return do_stop_daemon(daemon_running,socket_path);
     }
     if(daemon_running){
         if(viewer){
-            return viewer_guessnum(pipe_in,pipe_out);
+            return viewer_guessnum(socket_path);
         }else{
             fprintf(stderr,"Bulls and Cows daemon is already running.\n");
             return 1;
@@ -129,12 +137,12 @@ int main(int argc, char *argv[])
     }
     pid_t pid=fork();
     if(0!=pid){
-        if(E_OK!=wait_daemon(true,pipe_in,pipe_out,20)){
+        if(E_OK!=wait_daemon(true,socket_path,20)){
             fprintf(stderr,"Failed to start Bulls and Cows daemon.\n");
             return 1;
         }
         if(viewer){
-            return viewer_guessnum(pipe_in,pipe_out);
+            return viewer_guessnum(socket_path);
         }
         fprintf(stderr,"Bulls and Cows daemon started.\n");
         return 0;
@@ -146,8 +154,7 @@ int main(int argc, char *argv[])
     worker_param_t param={
         .thread_count=proc_cnt,
         .stat_path=filename_stat,
-        .pipe_in=pipe_in,
-        .pipe_out=pipe_out,
+        .socket_path=socket_path,
     };
     signal(SIGINT,SIG_IGN);
     signal(SIGQUIT,SIG_IGN);
@@ -160,7 +167,7 @@ int main(int argc, char *argv[])
     game_data_t report={0};
     time_t t_write=time(NULL),t;
     while(worker->running) {
-        worker_pipe_handler(worker);
+        socket_handler(worker);
         t=time(NULL);
         if(t-t_write >= 2) {
             worker_report(worker);

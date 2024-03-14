@@ -33,8 +33,7 @@ worker_t *worker_start(worker_param_t *param)
         return NULL;
     }
     worker->fileinfo.stat_path=param->stat_path;
-    worker->fileinfo.pipe_in=param->pipe_in;
-    worker->fileinfo.pipe_out=param->pipe_out;
+    worker->fileinfo.socket_path=param->socket_path;
     int rc=init_files(&worker->fileinfo);
     if(rc!=E_OK){
         free(worker);
@@ -93,56 +92,4 @@ void worker_stop(worker_t *worker)
     close_files(&worker->fileinfo);
     pthread_mutex_destroy(&worker->stat_mutex);
     free(worker);
-}
-static void output_stat(int fd,worker_t *worker)
-{
-    worker_report(worker);
-    game_data_t game_data;
-    pthread_mutex_lock(&worker->stat_mutex);
-    game_data = worker->game_data_main;
-    pthread_mutex_unlock(&worker->stat_mutex);
-    
-    uint8_t i,last_record=GUESS_CHANCES;
-    char buf[80];
-    while(last_record>8) {
-        if(game_data.report_s[last_record-1]!=0 ||
-            game_data.report_m[last_record-1]!=0) {
-            break;
-        }
-        last_record--;
-    }
-    snprintf(buf,sizeof(buf),"%u\n",last_record);
-    int rc=write(fd,buf,strlen(buf));
-    if(rc<=0){
-        fprintf(stderr,"Failed to write pipe %d %d\n",rc,errno);
-    }
-    for(i=0; i<last_record; i++) {
-        snprintf(buf,sizeof(buf),"%llu,%llu\n",game_data.report_s[i],game_data.report_m[i]);
-        int rc=write(fd,buf,strlen(buf));
-        if(rc<=0){
-            fprintf(stderr,"Failed to write pipe %d %d\n",rc,errno);
-        }
-    }
-}
-int worker_pipe_handler(worker_t *worker)
-{
-    char cmd='\0';
-    int rc=read(worker->fileinfo.fd_in,&cmd,sizeof(cmd));
-    if(rc<0 && errno==EAGAIN){
-        return E_AGAIN;
-    }else if(rc<=0){
-        fprintf(stderr,"Failed to read pipe %d %d\n",rc,errno);
-        return E_FILEIO;
-    }
-    switch(cmd){
-        case 'Q':
-        case 'q':
-            worker->running=false;
-        break;
-        case 'B':
-        case 'b':
-            output_stat(worker->fileinfo.fd_out,worker);
-        break;
-    }
-    return E_OK;
 }
