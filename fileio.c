@@ -44,7 +44,7 @@ int wait_daemon(bool start_action, const char *socket_path, time_t timeout)
 int init_files(fileinfo_t *info)
 {
     size_t i;
-    if(NULL==info || NULL==info->stat_path || NULL==info->socket_path){
+    if(NULL==info || NULL==info->stat_path){
         fprintf(stderr,"Invalid param.\n");
         return E_INVAL;
     }
@@ -68,8 +68,17 @@ int init_files(fileinfo_t *info)
         fprintf(stderr,"Failed to lock stat file %s, possibly other instance is running.\n",info->stat_path);
         goto error_exit;
     }
-    
-    unlink(info->socket_path);
+    return E_OK;
+error_exit:
+    close_files(info);
+    return E_FILEIO;
+}
+int init_socket(fileinfo_t *info)
+{
+    if(NULL==info || NULL==info->socket_path){
+        fprintf(stderr,"Invalid param.\n");
+        return E_INVAL;
+    }
     int fd=socket(AF_UNIX,SOCK_STREAM,0);
     if(fd<0){
         goto error_exit;

@@ -34,12 +34,15 @@ worker_t *worker_start(worker_param_t *param)
     }
     worker->fileinfo.stat_path=param->stat_path;
     worker->fileinfo.socket_path=param->socket_path;
-    int rc=init_files(&worker->fileinfo);
-    if(rc!=E_OK){
+    if(init_files(&worker->fileinfo)!=E_OK){
         free(worker);
         return NULL;
     }
     init();
+    if(init_socket(&worker->fileinfo)!=E_OK){
+        free(worker);
+        return NULL;
+    }
     worker->thread_count=param->thread_count;
     worker->running=true;
     pthread_mutex_init(&worker->stat_mutex, NULL);

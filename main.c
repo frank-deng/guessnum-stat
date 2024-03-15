@@ -137,6 +137,7 @@ int main(int argc, char *argv[])
     }
     pid_t pid=fork();
     if(0!=pid){
+        fprintf(stderr,"Daemon initializing...\n");
         if(E_OK!=wait_daemon(true,socket_path,20)){
             fprintf(stderr,"Failed to start Bulls and Cows daemon.\n");
             return 1;
