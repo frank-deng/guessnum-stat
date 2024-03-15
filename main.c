@@ -61,7 +61,7 @@ int do_stop_daemon(bool daemon_running,const char *socket_path){
     
     char cmd='q';
     if(write(fd,&cmd,sizeof(cmd))<sizeof(cmd)){
-        fprintf(stderr,"Failed to stop 2048 daemon.\n");
+        fprintf(stderr,"Failed to stop Bulls and Cows daemon.\n");
     }
     close(fd);
     if(wait_daemon(false,socket_path,20)!=E_OK){
